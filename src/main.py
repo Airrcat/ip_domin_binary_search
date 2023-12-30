@@ -88,7 +88,7 @@ if __name__ == "__main__":
     parser.add_option("-t", "--target", dest="target",
                       default="target", type="string")
     parser.add_option("-o", "--output", dest="output",
-                      default="output", type="string")
+                      default="..//target//output.txt", type="string")
     options, args = parser.parse_args()
     target = options.target  # "..\\target\\Test5.dll"  # parser.target
     output = options.output  # "output.txt"  # parser.output
