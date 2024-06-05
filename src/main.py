@@ -1,7 +1,21 @@
 from optparse import OptionParser
+import os
 
 
-def extract_str(buf: bytes, target="ip", mode="strong") -> list[str]:
+def extract_ip(buf: bytes) -> list[str]:
+    str_list = extract_str(buf, target="ip")
+    ip_list = ip_search(str_list)
+    # print(ip_list)
+    return ip_list
+
+
+def extract_domain(buf: bytes) -> list[str]:
+    str_list = extract_str(buf, target="ip")
+    domain_list = domain_search(str_list)
+    return domain_list
+
+
+def extract_str(buf: bytes, target="str", mode="strong") -> list[str]:
     """旨在从任意二进制映像中提取字符串。默认进行ip提取，
     边遍历边进行字符的提取，该函数**只提取可见ascii码**。
     即byte大小>= 0x20 and <= 0x7f 的字符 
@@ -19,8 +33,8 @@ def extract_str(buf: bytes, target="ip", mode="strong") -> list[str]:
 
     while ptr < len(buf):  # 整体循环，当字符串提取循环退出后会在这里重置tmp变量
         str_tmp = ""
-        if buf[ptr] >= 0x20 and buf[ptr] <= 0x7f:  # 进入字符串提取循环
-            while buf[ptr] >= 0x20 and buf[ptr] <= 0x7f:
+        if buf[ptr] >= 0x20 and buf[ptr] < 0x7f:  # 进入字符串提取循环
+            while buf[ptr] >= 0x20 and buf[ptr] < 0x7f:
                 str_tmp += chr(buf[ptr])
                 ptr += 1
                 if mode == "strong" and buf[ptr] == 0:  # Mode
@@ -30,7 +44,7 @@ def extract_str(buf: bytes, target="ip", mode="strong") -> list[str]:
                 if len(str_tmp) > 5:
                     str_list.append(str_tmp)
             elif target == "str":
-                if len(str_tmp) > 1:
+                if len(str_tmp) > 3:
                     str_list.append(str_tmp)
         else:
             ptr += 1
@@ -46,13 +60,25 @@ def ip_search(str_list: list) -> list[str]:
     Return: 目的ip列表
 
     """
+
     pattern = r"((2(5[0-5]|[0-4]\d))|[0-1]?\d{1,2})(\.((2(5[0-5]|[0-4]\d))|[0-1]?\d{1,2})){3}"
+    # pattern = r'(?<![\.\d])(([1-9]?\d|1\d\d|2[0-4]\d|25[0-5])\.){3}([1-9]?\d|1\d\d|2[0-4]\d|25[0-5])(?![\.\d])'
+    # 匹配 0-255的表达式书写方法
+    # pattern = r'([1-9]?\d|1\d\d|2[0-4]\d|25[0-5])'
+
     import re
     ip_list = []
     for s in str_list:
-        ip = re.match(pattern, s)
-        if ip != None:
-            ip_list.append(ip.string)
+        # s = "https://36.123.123.123:9443"
+        ip = re.search(pattern, s)
+        while ip != None:  # 如go可能会出现一个极长字符串的情况，因此做了一条字符串的遍历多次查询
+            match_ip = s[ip.start():ip.end()]
+            ip_list.append(match_ip)
+            s = s[ip.end()::]
+            # print(s)
+            ip = re.search(pattern, s)
+            # print(match_ip)
+            # print()
 
     return ip_list
 
@@ -67,46 +93,54 @@ def domain_search(str_list: list) -> list[str]:
     """
     import tld
     import re
-    pattern = r'^(?=^.{3,255}$)[a-zA-Z0-9][-a-zA-Z0-9]{0,62}(\.[a-zA-Z0-9][-a-zA-Z0-9]{0,62})+$'
+    pattern = r'([a-zA-Z0-9]([a-zA-Z0-9-_]{0,61}[a-zA-Z0-9])?\.){2,4}[a-zA-Z]{2,11}'
+
+
+# r'(?=^.{3,255}$)[a-zA-Z0-9][-a-zA-Z0-9]{0,62}(\.[a-zA-Z0-9][-a-zA-Z0-9]{0,62})+$'
     domain_list = []
 
     for s in str_list:
-        domain = re.match(pattern, s)
-        if domain != None:
-            if tld.get_tld(domain.string, fail_silently=True, fix_protocol=True) != None:
-                domain_list.append(domain.string)
+        domain = re.search(pattern, s)
+        while domain != None:  # 同ip search，做循环取
+            match_domain = s[domain.start():domain.end()]
+            if tld.get_tld(match_domain, fail_silently=True, fix_protocol=True) != None:
+                domain_list.append(match_domain)
+
+            s = s[domain.end()::]
+            domain = re.search(pattern, s)
+            # print(domain.string)
+            # print(tld.get_tld("bj.cmgly.com", fail_silently=True, fix_protocol=True))
 
     return domain_list
-
-
-def result_check():
-    pass
 
 
 if __name__ == "__main__":
     parser = OptionParser(usage="python3 main.py -t target -o output.txt")
     parser.add_option("-t", "--target", dest="target",
-                      default="target", type="string")
-    parser.add_option("-o", "--output", dest="output",
-                      default="..//target//output.txt", type="string")
+                      default="..//target//exp.exe.1", type="string")
+    # parser.add_option("-o", "--output", dest="output",
+    #                 default="..//", type="string")
     options, args = parser.parse_args()
     target = options.target  # "..\\target\\Test5.dll"  # parser.target
-    output = options.output  # "output.txt"  # parser.output
+    # output = options.output  # "output.txt"  # parser.output
 
     f_target = open(target, "rb")
-    f_output = open(output, "w")
+
     buf = f_target.read()
 
     str_list = extract_str(buf)
-    ip_list = ip_search(str_list)
-    domain_list = domain_search(str_list)
-    f_output.write("--------str-------\r\n")
-    for s in str_list:
-        f_output.write(s+"\r")
-    f_output.write("--------ip--------\r\n")
+    ip_list = extract_ip(buf)  # ip_search(str_list)
+    domain_list = extract_domain(buf)  # domain_search(str_list)
+
+    f_str = open("output.txt", "w")
+    # f_str.write("--------str-------\r")
+    # for s in str_list:
+    #    f_str.write(s+"\r")
+    # f_ip = open("ip.txt", "w")
+    f_str.write("--------ip--------\r")
     for i in ip_list:
-        f_output.write(i+"\r")
-    f_output.write("------domain------\r\n")
+        f_str.write(i+"\r")
+    f_str.write("------domain------\r")
     for d in domain_list:
-        f_output.write(d+"\r")
+        f_str.write(d+"\r")
     pass
