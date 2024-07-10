@@ -1,5 +1,9 @@
+from multiprocessing import Pool
+from multiprocess import *
 from optparse import OptionParser
 import os
+
+key_list = ["passwd", "password", "secret", "key", "token"]
 
 
 def extract_ip(buf: bytes) -> list[str]:
@@ -37,8 +41,15 @@ def extract_str(buf: bytes, target="str", mode="strong") -> list[str]:
             while buf[ptr] >= 0x20 and buf[ptr] < 0x7f:
                 str_tmp += chr(buf[ptr])
                 ptr += 1
+                if ptr >= len(buf):
+                    break
+                if ptr == len(buf):
+                    # str_list.append(str_tmp)
+                    break
                 if mode == "strong" and buf[ptr] == 0:  # Mode
                     ptr += 1
+                    if ptr >= len(buf):
+                        break
                     continue
             if target == "ip":  # target
                 if len(str_tmp) > 5:
@@ -50,6 +61,84 @@ def extract_str(buf: bytes, target="str", mode="strong") -> list[str]:
             ptr += 1
 
     return str_list
+
+
+def extract_code_str(buf: bytes) -> list[str]:
+    """旨在提取代码文件中的字符串信息（用引号包裹的字符串）
+    尚不能匹配中文。
+    :param buf: 提取源
+    :return: 字符串列表
+    """
+    p = 0
+    check = 0
+    code_strs = []
+    code_str = ""
+    while p < len(buf):
+        # print(p, len(buf))
+        if check == 1:
+            "找到字符串头后，匹配字符串"
+            if buf[p] == ord("\""):
+                "找到字符串尾，退出"
+                check = 0
+                code_strs.append(code_str)
+               # print(code_strs)
+                code_str = ""
+                p += 1
+                continue
+            if buf[p] >= 0x20 and buf[p] < 0x7f:
+                "匹配字符"
+                code_str += chr(buf[p])
+                p += 1
+
+                continue
+            else:
+                "非明文字符串"
+                check = 0
+                code_str = ""
+                p += 1
+                continue
+        if buf[p] == ord("\""):
+            "找到字符串头"
+            check = 1
+            p += 1
+            continue
+        p += 1
+
+    p = 0
+    check = 0
+    check = 0
+    while p != len(buf):
+        # print(buf[p])
+        if check == 1:
+            "找到字符串头后，匹配字符串"
+            if buf[p] == ord("\'"):
+                "找到字符串尾，退出"
+                check = 0
+                code_strs.append(code_str)
+                code_str = ""
+                p += 1
+                continue
+            if buf[p] >= 0x20 and buf[p] < 0x7f:
+                "匹配字符"
+                code_str += chr(buf[p])
+                p += 1
+                continue
+            else:
+                "非明文字符串"
+                check = 0
+                code_str = ""
+                p += 1
+                continue
+
+        if buf[p] == ord("\'"):
+            "找到字符串头"
+            check = 1
+            p += 1
+            continue
+        p += 1
+
+    pass
+    return code_strs
 
 
 def ip_search(str_list: list) -> list[str]:
@@ -114,7 +203,215 @@ def domain_search(str_list: list) -> list[str]:
     return domain_list
 
 
+def keyword_search2(path: str) -> list[str]:
+    about_keyword_list = [""]
+    f = open(path, "rb")
+    buf = f.read()
+    f.close()
+    str_list = extract_str(buf)
+    for s in str_list:
+        # print(s)
+        tmp = s
+        count = 0
+        for k in key_list:
+            # print(f"k:{k}")
+            while tmp.find(k) != -1:
+                index = tmp.find(k)
+                # print(f"index:{index}")
+                prefix = 25 if index > 25 else index
+                suffix = 25 if len(tmp) - index - \
+                    len(k) > 25 else len(tmp) - index - len(k)
+                # if len(about_keyword_list) > 0:
+                if about_keyword_list[-1] == tmp:
+                    break
+                about_keyword_list.append(
+                    tmp[index-prefix:index+len(k)+suffix])
+                tmp = tmp[index+len(k)+suffix::]
+                # print(f"tmp:{tmp}")
+                # print(
+                #    f"tmp:{tmp}\r\nlen:{len(tmp)}\r\nindex2:{index+len(k)+suffix}")
+
+    return about_keyword_list
+
+
+def keyword_search(keywords: list, strs: list) -> list[str]:
+    keyword_list = []
+    check = 0
+    for s in strs:
+        for k in keywords:
+            if check == 1:
+                check = 0
+                keyword_list.append(s)
+            if k in s:
+                keyword_list.append(s)
+                check = 1
+                break
+    return keyword_list
+
+
+def search_document(path: str):
+    f_str = open("output2.txt", "w")
+    keyword_list = []
+    ip_list = []
+    domain_list = []
+    for filepath, dirnames, filenames in os.walk(path):
+        for filename in filenames:
+            tmp = os.path.join(filepath, filename)
+            if ".git" in tmp:
+                break
+            if os.stat(tmp).st_size > 1 * 1024*1024:
+                continue
+            # print(tmp)
+            f = open(tmp, "rb")
+            buf = f.read()
+            f.close()
+
+            s0 = extract_str(buf)
+
+            # print(os.path.join(filepath, filename))
+            s1 = keyword_search(key_list, extract_code_str(buf))
+            s2 = extract_ip(buf)
+            s3 = extract_domain(buf)
+            keyword_list.append(s1)
+            ip_list.append(s2)
+            domain_list.append(s3)
+
+    f_str.write("-----keyword------\r")
+    for s in keyword_list:
+        for i in s:
+            f_str.write(i+"\r")
+    f_str.write("--------ip--------\r")
+    for s in ip_list:
+        for i in s:
+            f_str.write(i+"\r")
+    f_str.write("------domain------\r")
+    for s in domain_list:
+        for i in s:
+            f_str.write(i+"\r")
+    f_str.close()
+    pass
+
+
+def search_in_file_list(file_list: list[str]):
+    keyword_list = []
+    ip_list = []
+    domain_list = []
+    # print(file_list)
+    for file in file_list:
+        f = open(file, "rb")
+        # print(file)
+        if os.stat(file).st_size > 1 * 1024 * 1024:
+            continue
+
+        buf = f.read()
+        f.close()
+        if len(buf) > 4*1024*1024:
+            continue
+        # s0 = extract_str(buf)
+
+        # print(os.path.join(filepath, filename))
+        # s1 = keyword_search(key_list, extract_code_str(buf))
+        s1 = keyword_search2(file)
+        s2 = extract_ip(buf)
+        s3 = extract_domain(buf)
+        keyword_list.append(s1)
+        ip_list.append(s2)
+        domain_list.append(s3)
+    return [keyword_list, ip_list, domain_list]
+    pass
+
+
+def remove_same_in_list(lst: list):
+    new_lst = []
+    for i in lst:
+        for l in i:
+            if l not in new_lst:
+                new_lst.append(l)
+    return new_lst
+
+
+def search_in_document_by_multi(path: str):
+    f_str = open("output3.txt", "w")
+    file_list = []
+    keyword_list = []
+    ip_list = []
+    domain_list = []
+    for filepath, dirnames, filenames in os.walk(path):
+        for filename in filenames:
+            tmp = os.path.join(filepath, filename)
+            if ".git" in tmp:
+                break
+            if os.stat(tmp).st_size > 1 * 1024*1024:
+                continue
+            file_list.append(tmp)
+    process_count = len(file_list) // 1000
+    if process_count == 0:
+        process_count = 1
+    # print(process_count)
+    for p in range(0, process_count, 5):
+
+        pool = Pool(processes=5)
+        for i in range(5):
+            print(p+i)
+            # print(list(file_list[(p+i)*1000:(p+i+1)*1000]))
+            if p + i >= process_count:
+                # print((p+i)*1000, len(file_list))
+                tmp = pool.apply_async(
+                    search_in_file_list, (file_list[(p+i)*1000:],)).get()
+            else:
+                # print((p+i+1)*1000, len(file_list))
+                tmp = pool.apply_async(
+                    search_in_file_list, (file_list[(p+i)*1000:(p+i+1)*1000],)).get()
+
+            keywords = tmp[0]
+            ips = tmp[1]
+            domains = tmp[2]
+            keyword_list += (keywords)
+            ip_list += (ips)
+            domain_list += (domains)
+            if p + i >= process_count:
+                break
+        pool.close()
+        pool.join()
+    keyword_list = remove_same_in_list(keyword_list)
+    ip_list = remove_same_in_list(ip_list)
+    domain_list = remove_same_in_list(domain_list)
+    # keyword_list.sort()
+    # ip_list.sort()
+    # domain_list.sort()
+    f_str.write("-----keyword------\r")
+    for s in keyword_list:
+        # for i in s:
+        if len(s) != 0:
+            f_str.write(s+"\r")
+    f_str.write("--------ip--------\r")
+    for s in ip_list:
+        if len(s) != 0:
+            f_str.write(s+"\r")
+    f_str.write("------domain------\r")
+    for s in domain_list:
+        if len(s) != 0:
+            f_str.write(s+"\r")
+    f_str.close()
+    pass
+    pass
+
+
+def test():
+    search_document(r"E:\Code\Python\\")
+
+
+def test2():
+    search_in_document_by_multi(r"D:\\work")
+
+
 if __name__ == "__main__":
+    # f = open("./main.py", "rb")
+    # buf = f.read()
+    # code_str_list = extract_code_str(buf)
+    # print(code_str_list)
+    test2()
+    exit()
     parser = OptionParser(usage="python3 main.py -t target -o output.txt")
     parser.add_option("-t", "--target", dest="target",
                       default="..//target//exp.exe.1", type="string")
