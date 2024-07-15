@@ -3,17 +3,30 @@ from multiprocess import *
 from optparse import OptionParser
 import os
 
-key_list = ["passwd", "password", "secret", "key", "token"]
+key_list = ["passwd", "password", "secret",
+            "key:\"", "key:\'", "key :\"", "key :\'",
+            "key=\"", "key=\'", "key =\"", "key =\'",
+            "key\'", "key\""
+            "token"]
 
 
 def extract_ip(buf: bytes) -> list[str]:
+    """从bytes流中导出ip的接口。会调用extract_str导出字符串后再挨个查。
+    如果是需要考虑性能的场景，建议不用此接口。
+    :param buf: 目标字节流
+    :return: 包含ip列表的list
+    """
     str_list = extract_str(buf, target="ip")
     ip_list = ip_search(str_list)
-    # print(ip_list)
     return ip_list
 
 
 def extract_domain(buf: bytes) -> list[str]:
+    """从bytes流中导出域名的接口。会调用extract_str导出字符串后再挨个查。
+    如果是需要考虑性能的场景，建议不用此接口。
+    :param buf: 目标字节流
+    :return: 包含domain列表的list
+    """
     str_list = extract_str(buf, target="ip")
     domain_list = domain_search(str_list)
     return domain_list
@@ -22,7 +35,9 @@ def extract_domain(buf: bytes) -> list[str]:
 def extract_str(buf: bytes, target="str", mode="strong") -> list[str]:
     """旨在从任意二进制映像中提取字符串。默认进行ip提取，
     边遍历边进行字符的提取，该函数**只提取可见ascii码**。
-    即byte大小>= 0x20 and <= 0x7f 的字符 
+    即byte大小>= 0x20 and <= 0x7f 的字符。
+
+    如果是需要考虑性能的场景，建议不使用此接口。
 
     Args: buf -> 目标二进制映像
           target -> 需要提取的字符串类型，目前仅可提取ip和str。
@@ -33,28 +48,28 @@ def extract_str(buf: bytes, target="str", mode="strong") -> list[str]:
 
     """
     str_list = []
-    ptr = 0
+    ptr = 0  # 读取指针
 
     while ptr < len(buf):  # 整体循环，当字符串提取循环退出后会在这里重置tmp变量
         str_tmp = ""
         if buf[ptr] >= 0x20 and buf[ptr] < 0x7f:  # 进入字符串提取循环
             while buf[ptr] >= 0x20 and buf[ptr] < 0x7f:
-                str_tmp += chr(buf[ptr])
+                str_tmp += chr(buf[ptr])  # 确认是字符，添加
                 ptr += 1
                 if ptr >= len(buf):
                     break
-                if ptr == len(buf):
+                if ptr == len(buf):  # 历史遗留
                     # str_list.append(str_tmp)
                     break
                 if mode == "strong" and buf[ptr] == 0:  # Mode
-                    ptr += 1
-                    if ptr >= len(buf):
+                    ptr += 1  # 这里不是很完整。在unicode模式下，ascii以word字长存储，低位是ascii，高位是0。这里应该对长度做限制。
+                    if ptr >= len(buf):  # 防止指针过长，可优化
                         break
                     continue
             if target == "ip":  # target
-                if len(str_tmp) > 5:
+                if len(str_tmp) > 6:  # 为ip筛选长度合适的字符串：0.0.0.0
                     str_list.append(str_tmp)
-            elif target == "str":
+            elif target == "str":  # 去除二进制流中可能被解释为ascii的字符，但这个方法其实比较朴素。
                 if len(str_tmp) > 3:
                     str_list.append(str_tmp)
         else:
@@ -66,76 +81,78 @@ def extract_str(buf: bytes, target="str", mode="strong") -> list[str]:
 def extract_code_str(buf: bytes) -> list[str]:
     """旨在提取代码文件中的字符串信息（用引号包裹的字符串）
     尚不能匹配中文。
-    :param buf: 提取源
-    :return: 字符串列表
+
+    如果是需要考虑性能的场景，建议不使用此接口。
+    :param buf: 目标字节流
+    :return: 包含代码的字符串列表的list
     """
-    p = 0
+    ptr = 0
     check = 0
     code_strs = []
     code_str = ""
-    while p < len(buf):
+    while ptr < len(buf):
         # print(p, len(buf))
         if check == 1:
             "找到字符串头后，匹配字符串"
-            if buf[p] == ord("\""):
+            if buf[ptr] == ord("\""):
                 "找到字符串尾，退出"
                 check = 0
                 code_strs.append(code_str)
                # print(code_strs)
                 code_str = ""
-                p += 1
+                ptr += 1
                 continue
-            if buf[p] >= 0x20 and buf[p] < 0x7f:
+            if buf[ptr] >= 0x20 and buf[ptr] < 0x7f:
                 "匹配字符"
-                code_str += chr(buf[p])
-                p += 1
+                code_str += chr(buf[ptr])
+                ptr += 1
 
                 continue
             else:
                 "非明文字符串"
                 check = 0
                 code_str = ""
-                p += 1
+                ptr += 1
                 continue
-        if buf[p] == ord("\""):
+        if buf[ptr] == ord("\""):
             "找到字符串头"
             check = 1
-            p += 1
+            ptr += 1
             continue
-        p += 1
+        ptr += 1
 
-    p = 0
+    ptr = 0
     check = 0
     check = 0
-    while p != len(buf):
+    while ptr != len(buf):
         # print(buf[p])
         if check == 1:
             "找到字符串头后，匹配字符串"
-            if buf[p] == ord("\'"):
+            if buf[ptr] == ord("\'"):
                 "找到字符串尾，退出"
                 check = 0
                 code_strs.append(code_str)
                 code_str = ""
-                p += 1
+                ptr += 1
                 continue
-            if buf[p] >= 0x20 and buf[p] < 0x7f:
+            if buf[ptr] >= 0x20 and buf[ptr] < 0x7f:
                 "匹配字符"
-                code_str += chr(buf[p])
-                p += 1
+                code_str += chr(buf[ptr])
+                ptr += 1
                 continue
             else:
                 "非明文字符串"
                 check = 0
                 code_str = ""
-                p += 1
+                ptr += 1
                 continue
 
-        if buf[p] == ord("\'"):
+        if buf[ptr] == ord("\'"):
             "找到字符串头"
             check = 1
-            p += 1
+            ptr += 1
             continue
-        p += 1
+        ptr += 1
 
     pass
     return code_strs
@@ -259,8 +276,8 @@ def search_document(path: str):
             tmp = os.path.join(filepath, filename)
             if ".git" in tmp:
                 break
-            if os.stat(tmp).st_size > 1 * 1024*1024:
-                continue
+            # if os.stat(tmp).st_size > 1 * 1024*1024:
+            #    continue
             # print(tmp)
             f = open(tmp, "rb")
             buf = f.read()
@@ -300,13 +317,13 @@ def search_in_file_list(file_list: list[str]):
     for file in file_list:
         f = open(file, "rb")
         # print(file)
-        if os.stat(file).st_size > 1 * 1024 * 1024:
-            continue
+        # if os.stat(file).st_size > 1 * 1024 * 1024:
+        #    continue
 
         buf = f.read()
         f.close()
-        if len(buf) > 4*1024*1024:
-            continue
+        # if len(buf) > 4*1024*1024:
+        #    continue
         # s0 = extract_str(buf)
 
         # print(os.path.join(filepath, filename))
@@ -341,27 +358,27 @@ def search_in_document_by_multi(path: str):
             tmp = os.path.join(filepath, filename)
             if ".git" in tmp:
                 break
-            if os.stat(tmp).st_size > 1 * 1024*1024:
-                continue
+            # if os.stat(tmp).st_size > 1 * 1024*1024:
+            #    continue
             file_list.append(tmp)
-    process_count = len(file_list) // 1000
+    process_count = len(file_list) // 500
     if process_count == 0:
         process_count = 1
     # print(process_count)
-    for p in range(0, process_count, 5):
+    for p in range(0, process_count, 10):
 
-        pool = Pool(processes=5)
-        for i in range(5):
+        pool = Pool(processes=10)
+        for i in range(10):
             print(p+i)
             # print(list(file_list[(p+i)*1000:(p+i+1)*1000]))
             if p + i >= process_count:
                 # print((p+i)*1000, len(file_list))
                 tmp = pool.apply_async(
-                    search_in_file_list, (file_list[(p+i)*1000:],)).get()
+                    search_in_file_list, (file_list[(p+i)*500:],)).get()
             else:
                 # print((p+i+1)*1000, len(file_list))
                 tmp = pool.apply_async(
-                    search_in_file_list, (file_list[(p+i)*1000:(p+i+1)*1000],)).get()
+                    search_in_file_list, (file_list[(p+i)*500:(p+i+1)*500],)).get()
 
             keywords = tmp[0]
             ips = tmp[1]
@@ -383,7 +400,8 @@ def search_in_document_by_multi(path: str):
     for s in keyword_list:
         # for i in s:
         if len(s) != 0:
-            f_str.write(s+"\r")
+            if (":" in s or "=" in s) and s[-1] != ":" and s[-1] != "{":
+                f_str.write(s+"\r")
     f_str.write("--------ip--------\r")
     for s in ip_list:
         if len(s) != 0:
@@ -402,7 +420,7 @@ def test():
 
 
 def test2():
-    search_in_document_by_multi(r"D:\\work")
+    search_in_document_by_multi(r"C:\Users\Songs\Desktop\tmp")
 
 
 if __name__ == "__main__":
