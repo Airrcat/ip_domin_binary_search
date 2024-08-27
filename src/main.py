@@ -193,16 +193,12 @@ def domain_search(str_list: list) -> list[str]:
     """在字符串列表中使用正则匹配域名，并使用tld库进行一次顶级域名校验。
 
     Args: str_list->字符串列表源
-
     Return: 目的域名列表
-
     """
+
     import tld
     import re
     pattern = r'([a-zA-Z0-9]([a-zA-Z0-9-_]{0,61}[a-zA-Z0-9])?\.){2,4}[a-zA-Z]{2,11}'
-
-
-# r'(?=^.{3,255}$)[a-zA-Z0-9][-a-zA-Z0-9]{0,62}(\.[a-zA-Z0-9][-a-zA-Z0-9]{0,62})+$'
     domain_list = []
 
     for s in str_list:
@@ -214,225 +210,52 @@ def domain_search(str_list: list) -> list[str]:
 
             s = s[domain.end()::]
             domain = re.search(pattern, s)
-            # print(domain.string)
-            # print(tld.get_tld("bj.cmgly.com", fail_silently=True, fix_protocol=True))
 
     return domain_list
 
 
-def keyword_search2(path: str) -> list[str]:
-    about_keyword_list = [""]
-    f = open(path, "rb")
-    buf = f.read()
+def output(buf: list, name: str):
+    f = open(name+".txt", "w")
+    f.write("----------"+name+"----------\r")
+    for i in buf:
+        f.write(i+"\r")
     f.close()
+
+
+def total_search(buf: bytes):
     str_list = extract_str(buf)
-    for s in str_list:
-        # print(s)
-        tmp = s
-        count = 0
-        for k in key_list:
-            # print(f"k:{k}")
-            while tmp.find(k) != -1:
-                index = tmp.find(k)
-                # print(f"index:{index}")
-                prefix = 25 if index > 25 else index
-                suffix = 25 if len(tmp) - index - \
-                    len(k) > 25 else len(tmp) - index - len(k)
-                # if len(about_keyword_list) > 0:
-                if about_keyword_list[-1] == tmp:
-                    break
-                about_keyword_list.append(
-                    tmp[index-prefix:index+len(k)+suffix])
-                tmp = tmp[index+len(k)+suffix::]
-                # print(f"tmp:{tmp}")
-                # print(
-                #    f"tmp:{tmp}\r\nlen:{len(tmp)}\r\nindex2:{index+len(k)+suffix}")
+    ip_list = ip_search(str_list)
+    domain_list = domain_search(str_list)
 
-    return about_keyword_list
+    # 简单去重
+    domain_list = [domain for domain in {}.fromkeys(domain_list).keys()]
+    ip_list = [ip for ip in {}.fromkeys(ip_list).keys()]
+    str_list = [s for s in {}.fromkeys(str_list).keys()]
 
-
-def keyword_search(keywords: list, strs: list) -> list[str]:
-    keyword_list = []
-    check = 0
-    for s in strs:
-        for k in keywords:
-            if check == 1:
-                check = 0
-                keyword_list.append(s)
-            if k in s:
-                keyword_list.append(s)
-                check = 1
-                break
-    return keyword_list
-
-
-def search_document(path: str):
-    f_str = open("output2.txt", "w")
-    keyword_list = []
-    ip_list = []
-    domain_list = []
-    for filepath, dirnames, filenames in os.walk(path):
-        for filename in filenames:
-            tmp = os.path.join(filepath, filename)
-            if ".git" in tmp:
-                break
-            # if os.stat(tmp).st_size > 1 * 1024*1024:
-            #    continue
-            # print(tmp)
-            f = open(tmp, "rb")
-            buf = f.read()
-            f.close()
-
-            s0 = extract_str(buf)
-
-            # print(os.path.join(filepath, filename))
-            s1 = keyword_search(key_list, extract_code_str(buf))
-            s2 = extract_ip(buf)
-            s3 = extract_domain(buf)
-            keyword_list.append(s1)
-            ip_list.append(s2)
-            domain_list.append(s3)
-
-    f_str.write("-----keyword------\r")
-    for s in keyword_list:
-        for i in s:
-            f_str.write(i+"\r")
-    f_str.write("--------ip--------\r")
-    for s in ip_list:
-        for i in s:
-            f_str.write(i+"\r")
-    f_str.write("------domain------\r")
-    for s in domain_list:
-        for i in s:
-            f_str.write(i+"\r")
-    f_str.close()
-    pass
-
-
-def search_in_file_list(file_list: list[str]):
-    keyword_list = []
-    ip_list = []
-    domain_list = []
-    # print(file_list)
-    for file in file_list:
-        f = open(file, "rb")
-        # print(file)
-        # if os.stat(file).st_size > 1 * 1024 * 1024:
-        #    continue
-
-        buf = f.read()
-        f.close()
-        # if len(buf) > 4*1024*1024:
-        #    continue
-        # s0 = extract_str(buf)
-
-        # print(os.path.join(filepath, filename))
-        # s1 = keyword_search(key_list, extract_code_str(buf))
-        s1 = keyword_search2(file)
-        s2 = extract_ip(buf)
-        s3 = extract_domain(buf)
-        keyword_list.append(s1)
-        ip_list.append(s2)
-        domain_list.append(s3)
-    return [keyword_list, ip_list, domain_list]
-    pass
-
-
-def remove_same_in_list(lst: list):
-    new_lst = []
-    for i in lst:
-        for l in i:
-            if l not in new_lst:
-                new_lst.append(l)
-    return new_lst
-
-
-def search_in_document_by_multi(path: str):
-    f_str = open("output3.txt", "w")
-    file_list = []
-    keyword_list = []
-    ip_list = []
-    domain_list = []
-    for filepath, dirnames, filenames in os.walk(path):
-        for filename in filenames:
-            tmp = os.path.join(filepath, filename)
-            if ".git" in tmp:
-                break
-            # if os.stat(tmp).st_size > 1 * 1024*1024:
-            #    continue
-            file_list.append(tmp)
-    process_count = len(file_list) // 500
-    if process_count == 0:
-        process_count = 1
-    # print(process_count)
-    for p in range(0, process_count, 10):
-
-        pool = Pool(processes=10)
-        for i in range(10):
-            print(p+i)
-            # print(list(file_list[(p+i)*1000:(p+i+1)*1000]))
-            if p + i >= process_count:
-                # print((p+i)*1000, len(file_list))
-                tmp = pool.apply_async(
-                    search_in_file_list, (file_list[(p+i)*500:],)).get()
-            else:
-                # print((p+i+1)*1000, len(file_list))
-                tmp = pool.apply_async(
-                    search_in_file_list, (file_list[(p+i)*500:(p+i+1)*500],)).get()
-
-            keywords = tmp[0]
-            ips = tmp[1]
-            domains = tmp[2]
-            keyword_list += (keywords)
-            ip_list += (ips)
-            domain_list += (domains)
-            if p + i >= process_count:
-                break
-        pool.close()
-        pool.join()
-    keyword_list = remove_same_in_list(keyword_list)
-    ip_list = remove_same_in_list(ip_list)
-    domain_list = remove_same_in_list(domain_list)
-    # keyword_list.sort()
-    # ip_list.sort()
-    # domain_list.sort()
-    f_str.write("-----keyword------\r")
-    for s in keyword_list:
-        # for i in s:
-        if len(s) != 0:
-            if (":" in s or "=" in s) and s[-1] != ":" and s[-1] != "{":
-                f_str.write(s+"\r")
-    f_str.write("--------ip--------\r")
-    for s in ip_list:
-        if len(s) != 0:
-            f_str.write(s+"\r")
-    f_str.write("------domain------\r")
-    for s in domain_list:
-        if len(s) != 0:
-            f_str.write(s+"\r")
-    f_str.close()
-    pass
-    pass
-
-
-def test():
-    search_document(r"E:\Code\Python\\")
-
-
-def test2():
-    search_in_document_by_multi(r"C:\Users\Songs\Desktop\tmp")
+    output(domain_list, "domain")
+    output(ip_list, "ip")
+    output(str_list, "str")
+    # f_str = open("str.txt", "w")
+    # f_str.write("--------str-------\r")
+    # for s in str_list:
+    #     f_str.write(s+"\r")
+    # f_str.close()
+    # f_ip = open("ip.txt", "w")
+    # f_ip.write("--------ip--------\r")
+    # for i in ip_list:
+    #     f_ip.write(i+"\r")
+    # f_ip.close()
+    # f_domain = open("domain.txt", "w")
+    # f_domain.write("------domain------\r")
+    # for d in domain_list:
+    #     f_domain.write(d+"\r")
+    # f_domain.close()
 
 
 if __name__ == "__main__":
-    # f = open("./main.py", "rb")
-    # buf = f.read()
-    # code_str_list = extract_code_str(buf)
-    # print(code_str_list)
-    test2()
-    exit()
-    parser = OptionParser(usage="python3 main.py -t target -o output.txt")
+    parser = OptionParser(usage="python3 main.py -t target")
     parser.add_option("-t", "--target", dest="target",
-                      default="..//target//exp.exe.1", type="string")
+                      type="string")
     # parser.add_option("-o", "--output", dest="output",
     #                 default="..//", type="string")
     options, args = parser.parse_args()
@@ -443,19 +266,5 @@ if __name__ == "__main__":
 
     buf = f_target.read()
 
-    str_list = extract_str(buf)
-    ip_list = extract_ip(buf)  # ip_search(str_list)
-    domain_list = extract_domain(buf)  # domain_search(str_list)
-
-    f_str = open("output.txt", "w")
-    # f_str.write("--------str-------\r")
-    # for s in str_list:
-    #    f_str.write(s+"\r")
-    # f_ip = open("ip.txt", "w")
-    f_str.write("--------ip--------\r")
-    for i in ip_list:
-        f_str.write(i+"\r")
-    f_str.write("------domain------\r")
-    for d in domain_list:
-        f_str.write(d+"\r")
+    total_search(buf)
     pass
